@@ -1,0 +1,155 @@
+---
+title: "Untitled"
+output:
+  pdf_document: default
+  html_document: default
+date: "2023-12-10"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(raster)
+```
+
+```{r}
+library(spdep)
+```
+
+```{r}
+library(sp)
+library(readxl)
+library(openxlsx)
+library(sf)
+library(corrplot)
+```
+
+```{r}
+library(DescTools)
+library(nortest)
+library(car)
+```
+```{r}
+library(spatialreg)
+```
+```{r}
+data <- read_excel("Soal Ujian 2023.xlsx", sheet = "Variabel")
+data <- as.data.frame(data)
+head(data)
+```
+```{r}
+data <- data[1:27,]
+data <- data[, 1:14]
+colnames(data) <- c("KabKot", "ID", "Y1", "Y2", "Y3", "X1", "X2", "X3", "X4", "X5", "X6", "X7", "X8", "X9")
+data
+```
+
+
+```{r}
+# Menghilangkan peubah ID dan KabKot serta melakukan scaling
+data.2 = data[,-c(1,2)]
+data.2 = scale(data.2)
+data.scaling = data.frame(data$KabKot, data$ID, data.2)
+head(data.scaling)
+```
+```{r}
+peta <- st_read(dsn = "Jawamap", layer = "jawa")
+```
+```{r}
+peta$ID2013
+```
+
+```{r}
+# Memilih Kab/Kota Jawa Barat (diawali dengan 32) (Jawa Barat)
+jabar = peta[7:33,]
+jabar
+```
+
+```{r}
+data[!complete.cases(data),]
+```
+```{r}
+data.scaling[!complete.cases(data.scaling),]
+```
+
+# Eksplorasi spasial peubah jumlah penderita TBC 2022
+```{r}
+k=20
+colfunc <- colorRampPalette(c("red", "skyblue","blue"))
+color <- colfunc(k)
+polygon = jabar$geometry
+
+jabar.2 = as(polygon, "Spatial")
+
+jabar.2$Y<- data$Y3
+
+spplot(jabar.2, "Y", col.regions=color)
+```
+
+# Mendapatakan matriks ketetanggaan queen terstandarisasi
+
+```{r}
+sp.peta <- SpatialPolygons(jabar.2@polygons)
+qc <- poly2nb(sp.peta, queen = T)
+qc
+```
+
+```{r}
+W.qc <- nb2listw(qc, style='W',zero.policy=TRUE)
+ols <- lm(Y3~X1+X2+X3+X4+X5+X6+X7+X8+X9, data=data)
+qct = lm.morantest(ols, W.qc, alternative="greater", zero.policy = TRUE)
+qct
+```
+
+
+
+```{r}
+longlat <- coordinates(jabar.2)
+head(longlat)
+```
+
+```{r}
+jabar.2$long <- longlat[,1]
+jabar.2$lat <- longlat[,2]
+coords <- jabar.2[c("long","lat")]
+#class(coords)
+koord <- as.data.frame(coords)
+djarak<-dist(longlat)
+m.djarak<-as.matrix(djarak)
+```
+
+
+# Mendapatkan matriks invers jarak
+```{r}
+alpha = 1
+W.idw <- 1/(m.djarak^alpha)
+diag(W.idw) <- 0
+rowTot <- rowSums(W.idw)
+W.idw <- W.idw / rowTot
+W.idw_list = mat2listw(W.idw,style='W') 
+W.idw_list
+```
+
+
+# Menjawab persoalan nomor 1 yaitu Model SEM TBC 2022 dengan matriks ketetanggan terstandarisasi
+```{r}
+library(spatialreg)
+sem <- errorsarlm(Y3~X1+X2+X3+X4+X5+X6+X7+X8+X9, data=data.scaling,listw = W.qc, zero.policy = TRUE)
+summary(sem)
+```
+# Menjawab persoalan nomor 2 yaitu Model SEM TBC 2022 dengan matriks invers jarak
+
+```{r}
+sem <- errorsarlm(Y3~X1+X2+X3+X4+X5+X6+X7+X8+X9, data=data.scaling,listw = W.idw_list, zero.policy = TRUE)
+summary(sem)
+```
+
+
+# Menjawab persoalan nomor 3 yaitu Model SEM Diare 2022 dengan matriks ketetanggaan queen terstandarisasi
+
+```{r}
+SLX <- lmSLX(Y1~X1+X2+X3+X4+X5+X6+X7+X8+X9, data=data.scaling,listw = W.qc, zero.policy = TRUE)
+summary(SLX)
+```
